@@ -324,7 +324,7 @@ source /opt/ros/humble/setup.bash
 source /home/openflex/openflex_all/openflex_ws/install/setup.bash
 
 ros2 run openflex_teleop_ker ker_driver_node --ros-args \
-  --params-file /home/openflex/openflex_all/openflex_ws/src/m_ker/openflex_KER/openflex_teleop_ker/config/openflex_ker.yaml \
+  --params-file /home/openflex/openflex_all/openflex_ws/src/m_ker/ros2/openflex_teleop_ker/config/openflex_ker.yaml \
   -p transport:=wifi \
   -p wifi_host:=openarm-ker.local \
   -p wifi_port:=19090
