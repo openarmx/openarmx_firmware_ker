@@ -158,23 +158,39 @@ jobs:
               "https://gitee.com/api/v5/repos/$GITEE_REPOSITORY/releases/$existing_id?access_token=$GITEE_ACCESS_TOKEN"
           fi
 
-          release_response="$(
-            curl --fail-with-body --silent --show-error \
+          release_status="$(
+            curl --silent --show-error \
               --request POST \
               --data-urlencode "tag_name=$tag" \
               --data-urlencode "name=$name" \
               --data-urlencode "body=$body" \
               --data-urlencode "prerelease=$prerelease" \
+              --output gitee-release-response.json \
+              --write-out '%{http_code}' \
               "https://gitee.com/api/v5/repos/$GITEE_REPOSITORY/releases?access_token=$GITEE_ACCESS_TOKEN"
           )"
+          if [[ ! "$release_status" =~ ^2 ]]; then
+            echo "Gitee Release creation failed with HTTP $release_status" >&2
+            sed "s/$GITEE_ACCESS_TOKEN/***/g" gitee-release-response.json >&2
+            exit 1
+          fi
+          release_response="$(cat gitee-release-response.json)"
           release_id="$(jq -er '.id' <<< "$release_response")"
 
           for asset in release-assets/*; do
-            curl --fail-with-body --silent --show-error \
-              --request POST \
-              --form "file=@$asset" \
-              "https://gitee.com/api/v5/repos/$GITEE_REPOSITORY/releases/$release_id/attach_files?access_token=$GITEE_ACCESS_TOKEN" \
-              > /dev/null
+            asset_status="$(
+              curl --silent --show-error \
+                --request POST \
+                --form "file=@$asset" \
+                --output gitee-asset-response.json \
+                --write-out '%{http_code}' \
+                "https://gitee.com/api/v5/repos/$GITEE_REPOSITORY/releases/$release_id/attach_files?access_token=$GITEE_ACCESS_TOKEN"
+            )"
+            if [[ ! "$asset_status" =~ ^2 ]]; then
+              echo "Gitee asset upload failed with HTTP $asset_status: $(basename "$asset")" >&2
+              sed "s/$GITEE_ACCESS_TOKEN/***/g" gitee-asset-response.json >&2
+              exit 1
+            fi
             echo "Uploaded $(basename "$asset")"
           done
 
