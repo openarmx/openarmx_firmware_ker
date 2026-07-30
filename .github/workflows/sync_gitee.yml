@@ -155,28 +155,25 @@ jobs:
           if [[ -n "$existing_id" ]]; then
             curl --fail --silent --show-error \
               --request DELETE \
-              --data-urlencode "access_token=$GITEE_ACCESS_TOKEN" \
-              "https://gitee.com/api/v5/repos/$GITEE_REPOSITORY/releases/$existing_id"
+              "https://gitee.com/api/v5/repos/$GITEE_REPOSITORY/releases/$existing_id?access_token=$GITEE_ACCESS_TOKEN"
           fi
 
           release_response="$(
             curl --fail-with-body --silent --show-error \
               --request POST \
-              --data-urlencode "access_token=$GITEE_ACCESS_TOKEN" \
               --data-urlencode "tag_name=$tag" \
               --data-urlencode "name=$name" \
               --data-urlencode "body=$body" \
               --data-urlencode "prerelease=$prerelease" \
-              "https://gitee.com/api/v5/repos/$GITEE_REPOSITORY/releases"
+              "https://gitee.com/api/v5/repos/$GITEE_REPOSITORY/releases?access_token=$GITEE_ACCESS_TOKEN"
           )"
           release_id="$(jq -er '.id' <<< "$release_response")"
 
           for asset in release-assets/*; do
             curl --fail-with-body --silent --show-error \
               --request POST \
-              --form "access_token=$GITEE_ACCESS_TOKEN" \
               --form "file=@$asset" \
-              "https://gitee.com/api/v5/repos/$GITEE_REPOSITORY/releases/$release_id/attach_files" \
+              "https://gitee.com/api/v5/repos/$GITEE_REPOSITORY/releases/$release_id/attach_files?access_token=$GITEE_ACCESS_TOKEN" \
               > /dev/null
             echo "Uploaded $(basename "$asset")"
           done
