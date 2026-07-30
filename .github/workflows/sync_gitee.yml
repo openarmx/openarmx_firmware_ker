@@ -145,6 +145,7 @@ jobs:
           name="$(jq -r '.name // .tag_name' github-release.json)"
           body="$(jq -r '.body // ""' github-release.json)"
           prerelease="$(jq -r '.prerelease // false' github-release.json)"
+          target_commitish="$(jq -r '.target_commitish // "main"' github-release.json)"
 
           existing_release="$(
             curl --silent --show-error --get \
@@ -162,6 +163,7 @@ jobs:
             curl --silent --show-error \
               --request POST \
               --data-urlencode "tag_name=$tag" \
+              --data-urlencode "target_commitish=$target_commitish" \
               --data-urlencode "name=$name" \
               --data-urlencode "body=$body" \
               --data-urlencode "prerelease=$prerelease" \
