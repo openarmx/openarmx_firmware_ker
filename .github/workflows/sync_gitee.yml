@@ -1,0 +1,184 @@
+name: Sync to Gitee
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "**"
+  release:
+    types:
+      - published
+      - edited
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Optional GitHub Release tag to synchronize
+        required: false
+        type: string
+
+concurrency:
+  group: sync-gitee-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  GITEE_REPOSITORY: chengdu-changshu-robot/openarmx_firmware_ker
+  GITEE_GIT_URL: git@gitee.com:chengdu-changshu-robot/openarmx_firmware_ker.git
+
+jobs:
+  source:
+    name: Source and tags
+    runs-on: ubuntu-22.04
+    env:
+      GITEE_SSH_PRIVATE_KEY: ${{ secrets.GITEE_SSH_PRIVATE_KEY }}
+    steps:
+      - name: Check source synchronization credentials
+        id: credentials
+        shell: bash
+        run: |
+          if [[ -n "$GITEE_SSH_PRIVATE_KEY" ]]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "GITEE_SSH_PRIVATE_KEY is not configured; source synchronization was skipped." \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Checkout GitHub repository
+        if: steps.credentials.outputs.configured == 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Configure Gitee SSH access
+        if: steps.credentials.outputs.configured == 'true'
+        shell: bash
+        run: |
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$GITEE_SSH_PRIVATE_KEY" > "$HOME/.ssh/gitee_sync"
+          chmod 600 "$HOME/.ssh/gitee_sync"
+          ssh-keyscan -H gitee.com >> "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          cat >> "$HOME/.ssh/config" <<'EOF'
+          Host gitee.com
+            HostName gitee.com
+            User git
+            IdentityFile ~/.ssh/gitee_sync
+            IdentitiesOnly yes
+          EOF
+          chmod 600 "$HOME/.ssh/config"
+
+      - name: Push GitHub branches and tags to Gitee
+        if: steps.credentials.outputs.configured == 'true'
+        shell: bash
+        run: |
+          git remote add gitee "$GITEE_GIT_URL"
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*' --prune
+
+          while IFS= read -r branch; do
+            git push gitee "refs/remotes/origin/$branch:refs/heads/$branch"
+          done < <(
+            git for-each-ref \
+              --format='%(refname:strip=3)' \
+              refs/remotes/origin \
+              | grep -v '^HEAD$'
+          )
+
+          git push gitee --tags
+
+  release:
+    name: Release assets
+    needs: source
+    if: >-
+      github.event_name == 'release' ||
+      (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+    runs-on: ubuntu-22.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITEE_ACCESS_TOKEN: ${{ secrets.GITEE_ACCESS_TOKEN }}
+      EVENT_RELEASE_TAG: ${{ github.event.release.tag_name }}
+      INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - name: Check Release synchronization credentials
+        id: credentials
+        shell: bash
+        run: |
+          if [[ -n "$GITEE_ACCESS_TOKEN" ]]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "GITEE_ACCESS_TOKEN is not configured; Release synchronization was skipped." \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Resolve GitHub Release
+        if: steps.credentials.outputs.configured == 'true'
+        id: release
+        shell: bash
+        run: |
+          if [[ -n "$EVENT_RELEASE_TAG" ]]; then
+            tag="$EVENT_RELEASE_TAG"
+          else
+            tag="$INPUT_RELEASE_TAG"
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > github-release.json
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Download GitHub Release assets
+        if: steps.credentials.outputs.configured == 'true'
+        shell: bash
+        run: |
+          mkdir release-assets
+          gh release download "${{ steps.release.outputs.tag }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir release-assets
+
+      - name: Create Gitee Release and upload assets
+        if: steps.credentials.outputs.configured == 'true'
+        shell: bash
+        run: |
+          tag="${{ steps.release.outputs.tag }}"
+          name="$(jq -r '.name // .tag_name' github-release.json)"
+          body="$(jq -r '.body // ""' github-release.json)"
+          prerelease="$(jq -r '.prerelease // false' github-release.json)"
+
+          existing_release="$(
+            curl --silent --show-error --get \
+              --data-urlencode "access_token=$GITEE_ACCESS_TOKEN" \
+              "https://gitee.com/api/v5/repos/$GITEE_REPOSITORY/releases/tags/$tag"
+          )"
+          existing_id="$(jq -r '.id // empty' <<< "$existing_release")"
+          if [[ -n "$existing_id" ]]; then
+            curl --fail --silent --show-error \
+              --request DELETE \
+              --data-urlencode "access_token=$GITEE_ACCESS_TOKEN" \
+              "https://gitee.com/api/v5/repos/$GITEE_REPOSITORY/releases/$existing_id"
+          fi
+
+          release_response="$(
+            curl --fail-with-body --silent --show-error \
+              --request POST \
+              --data-urlencode "access_token=$GITEE_ACCESS_TOKEN" \
+              --data-urlencode "tag_name=$tag" \
+              --data-urlencode "name=$name" \
+              --data-urlencode "body=$body" \
+              --data-urlencode "prerelease=$prerelease" \
+              "https://gitee.com/api/v5/repos/$GITEE_REPOSITORY/releases"
+          )"
+          release_id="$(jq -er '.id' <<< "$release_response")"
+
+          for asset in release-assets/*; do
+            curl --fail-with-body --silent --show-error \
+              --request POST \
+              --form "access_token=$GITEE_ACCESS_TOKEN" \
+              --form "file=@$asset" \
+              "https://gitee.com/api/v5/repos/$GITEE_REPOSITORY/releases/$release_id/attach_files" \
+              > /dev/null
+            echo "Uploaded $(basename "$asset")"
+          done
+
+          echo "Synchronized GitHub Release $tag to Gitee." >> "$GITHUB_STEP_SUMMARY"
