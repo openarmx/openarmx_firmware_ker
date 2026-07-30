@@ -9,6 +9,7 @@ WiFiStream::WiFiStream()
     : _server(KER_WIFI_PORT)
     , _server_started(false)
     , _mdns_started(false)
+    , _enabled(false)
     , _error(false)
     , _last_wifi_attempt_ms(0)
     , _on_command(nullptr)
@@ -33,19 +34,35 @@ bool WiFiStream::add(const char* key, Type type, size_t count) {
     return true;
 }
 
-void WiFiStream::begin(const String& ssid, const String& password) {
+void WiFiStream::begin(const String& ssid, const String& password, bool enabled) {
     WiFi.mode(WIFI_STA);
     WiFi.setSleep(false);
     WiFi.setHostname(KER_WIFI_HOSTNAME);
-    setCredentials(ssid, password);
+    _ssid = ssid;
+    _password = password;
+    setEnabled(enabled);
+}
+
+void WiFiStream::setEnabled(bool enabled) {
+    if (_enabled == enabled) return;
+    resetNetworkServices();
+    _enabled = enabled;
+    WiFi.mode(WIFI_STA);
+    WiFi.setSleep(false);
+    WiFi.setHostname(KER_WIFI_HOSTNAME);
+    WiFi.disconnect(false);
+    if (_enabled && !_ssid.isEmpty()) {
+        WiFi.begin(_ssid.c_str(), _password.c_str());
+    }
+    _last_wifi_attempt_ms = millis();
 }
 
 void WiFiStream::setCredentials(const String& ssid, const String& password) {
     resetNetworkServices();
-    WiFi.disconnect();
+    WiFi.disconnect(false);
     _ssid = ssid;
     _password = password;
-    if (!_ssid.isEmpty()) {
+    if (_enabled && !_ssid.isEmpty()) {
         WiFi.begin(_ssid.c_str(), _password.c_str());
     }
     _last_wifi_attempt_ms = millis();
@@ -53,7 +70,7 @@ void WiFiStream::setCredentials(const String& ssid, const String& password) {
 
 void WiFiStream::clearCredentials() {
     resetNetworkServices();
-    WiFi.disconnect(true);
+    WiFi.disconnect(false);
     _ssid = "";
     _password = "";
 }
@@ -78,6 +95,7 @@ void WiFiStream::resetNetworkServices() {
 }
 
 void WiFiStream::maintainNetwork() {
+    if (!_enabled) return;
     if (WiFi.status() != WL_CONNECTED) {
         resetNetworkServices();
         if (_ssid.isEmpty()) return;

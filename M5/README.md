@@ -1,20 +1,21 @@
 # OpenArm KER M5
 
 OpenArm KER (Kinematically Equivalent Replica) M5 is a 16-channel joint angle DAQ system for the OpenArm robot.
-It reads magnetic encoders via RS-485 and streams joint angles to a PC over USB, serial, or WiFi.
+It reads magnetic encoders via RS-485 and streams joint angles to a PC over USB Vendor or WiFi.
 
-## Transport selection
+## Data transport
 
-The M5 transport is fixed at build and flash time. Select exactly one PlatformIO environment:
+There is one product firmware. It starts in USB mode and can switch between USB Vendor and WiFi
+TCP without rebooting. Build and flash it with:
 
 ```bash
-pio run -e usb --target upload
-pio run -e serial --target upload
-pio run -e wifi --target upload
+pio run --target upload
 ```
 
-`usb` remains the default. All three builds expose the same KER schema and commands; a build does
-not switch transport at runtime.
+The USB CDC management port and KER Vendor data interface are exposed by one TinyUSB composite
+device. The CDC port therefore remains available while USB Vendor carries ROS data. KER Studio
+uses CDC to save WiFi credentials, select USB or WiFi, read sensors and calibrate encoders. Serial
+is no longer a product data transport.
 
 The WiFi SSID and password are configured at runtime through the USB CDC management port and are
 stored in NVS. They no longer need to be compiled into `WiFiConfig.h`. The firmware advertises
@@ -69,13 +70,13 @@ To add a unit not yet supported:
 │   ├── GUIHandler.h      # Touchscreen GUI
 │   ├── RSNexus.h         # RS-485 packet handling
 │   ├── USBStream.h       # USB-OTG vendor stream
-│   ├── SerialStream.h    # Serial stream (drop-in replacement for USBStream)
+│   ├── RuntimeStream.h   # Runtime USB/WiFi selection and fallback
 │   └── WiFiStream.h      # WiFi TCP server and runtime credentials
 ├── src/
 │   ├── GUIHandler.cpp
 │   ├── RSNexus.cpp
 │   ├── USBStream.cpp
-│   ├── SerialStream.cpp
+│   ├── RuntimeStream.cpp
 │   ├── WiFiStream.cpp
 │   └── main.cpp
 └── platformio.ini
@@ -147,7 +148,7 @@ echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="303a", MODE="0666"' | sudo tee /etc/ud
 sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
-**Serial/flash mode — put M5Stack into boot mode first (hold RST 3 seconds):**
+**CDC/flash port — put M5Stack into boot mode first (hold RST 3 seconds):**
 
 ```bash
 SERIAL=$(udevadm info -q property -n /dev/ttyACM0 | grep ID_SERIAL_SHORT | cut -d= -f2)
@@ -178,9 +179,7 @@ uv pip install platformio
 Put M5Stack into boot mode (hold RST 3 seconds until green LED), then:
 
 ```bash
-uv run pio run -e usb --target upload     # USB-OTG mode (default)
-uv run pio run -e serial --target upload  # Serial mode
-uv run pio run -e wifi --target upload    # WiFi TCP mode
+uv run pio run --target upload
 ```
 
 Press RST once to reboot.
@@ -188,21 +187,12 @@ Press RST once to reboot.
 Each successful build also creates a complete image at:
 
 ```text
-.pio/build/<environment>/firmware_merged.bin
+.pio/build/ker/firmware_merged.bin
 ```
 
 `firmware.bin` contains only the application and must be flashed at `0x10000`.
 For one-file flashing at `0x0`, always use `firmware_merged.bin`; it contains the
 bootloader, partition table, boot application and main application.
-
----
-
-
-A `[env:serial]` environment is also available as an alternative if needed:
-
-```bash
-pio run -e serial -t upload
-```
 
 ### 5. PC receiver
 

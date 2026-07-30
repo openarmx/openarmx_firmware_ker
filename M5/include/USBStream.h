@@ -33,8 +33,8 @@ public:
 
     bool add(const char* key, Type type, size_t count = 1);
 
-    void begin(uint16_t    vid          = USB_VID,
-               uint16_t    pid          = USB_PID,
+    void begin(uint16_t    vid          = KER_USB_VID,
+               uint16_t    pid          = KER_USB_PID,
                const char* manufacturer = MANUFACTURER,
                const char* product      = PRODUCT);
 
@@ -58,6 +58,7 @@ public:
 
     bool   send();
     size_t recv(uint8_t* buf, size_t len);
+    void   clearInput();
     void   onCommand(CommandCallback cb);
 
     void sendPingResponse(const SensorSnapshot& snapshot,

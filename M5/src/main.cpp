@@ -14,7 +14,7 @@
 
 #include <M5Unified.h>
 #include <Preferences.h>
-#if defined(USE_WIFI)
+#if defined(USE_RUNTIME) || defined(USE_WIFI)
 #include <ArduinoJson.h>
 #include <WiFi.h>
 #endif
@@ -25,22 +25,31 @@
 #include "M5UnitScroll.h"
 #include "Meta.h"
 
-#if ((defined(USE_USB) ? 1 : 0) + (defined(USE_WIFI) ? 1 : 0) + (defined(USE_SERIAL) ? 1 : 0)) != 1
-#error "Define exactly one of USE_USB, USE_WIFI, or USE_SERIAL"
+#if ((defined(USE_RUNTIME) ? 1 : 0) + (defined(USE_USB) ? 1 : 0) + \
+     (defined(USE_WIFI) ? 1 : 0) + (defined(USE_SERIAL) ? 1 : 0)) != 1
+#error "Define exactly one transport build environment"
 #endif
 
-#if defined(USE_USB)
+#if defined(USE_RUNTIME)
+#include "RuntimeStream.h"
+RuntimeStream stream;
+USBCDC config_serial;
+#define KER_CONFIG_SERIAL config_serial
+#elif defined(USE_USB)
 #include "USBStream.h"
 USBStream stream;
 #elif defined(USE_WIFI)
 #include "WiFiStream.h"
 WiFiStream stream;
+#define KER_CONFIG_SERIAL Serial
 #else
 #include "SerialStream.h"
 SerialStream stream(Serial);
 #endif
 
-#if defined(USE_USB)
+#if defined(USE_RUNTIME)
+static constexpr const char* ACTIVE_FW_VERSION = FW_VERSION_RUNTIME;
+#elif defined(USE_USB)
 static constexpr const char* ACTIVE_FW_VERSION = FW_VERSION_USB;
 #elif defined(USE_WIFI)
 static constexpr const char* ACTIVE_FW_VERSION = FW_VERSION_WIFI;
@@ -54,7 +63,7 @@ static constexpr const char* ACTIVE_FW_VERSION = FW_VERSION_SERIAL;
 RSNexus      rs485nexus(Serial2, RS485_EN_PIN);
 GUIHandler   gui;
 Preferences  preferences;
-#if defined(USE_WIFI)
+#if defined(USE_RUNTIME) || defined(USE_WIFI)
 Preferences  network_preferences;
 #endif
 M5UnitScroll scroll;
@@ -82,15 +91,18 @@ bool encoder_found = false;
 // volatile int16_t shared_encoder_value  = 0;  // unused
 // volatile uint8_t shared_encoder_button = 0;  // unused
 
-#if defined(USE_WIFI)
+#if defined(USE_RUNTIME) || defined(USE_WIFI)
 static String config_line;
 
 static void sendConfigResponse(JsonDocument& response) {
-    serializeJson(response, Serial);
-    Serial.println();
+    serializeJson(response, KER_CONFIG_SERIAL);
+    KER_CONFIG_SERIAL.println();
 }
 
 static const char* wifiStatusName() {
+#if defined(USE_RUNTIME)
+    if (stream.mode() != TransportMode::WIFI) return "inactive";
+#endif
     switch (WiFi.status()) {
         case WL_CONNECTED: return "connected";
         case WL_NO_SSID_AVAIL: return "ssid_not_found";
@@ -121,6 +133,16 @@ static void handleConfigCommand(const String& line) {
         response["ok"] = true;
         response["fw"] = ACTIVE_FW_VERSION;
         response["hw"] = HW_VERSION;
+#if defined(USE_RUNTIME)
+        response["transport"] = stream.modeName();
+        response["transport_switching"] = stream.transportSwitching();
+        JsonArray transports = response.createNestedArray("available_transports");
+        transports.add("usb");
+        transports.add("wifi");
+#else
+        response["transport"] = "wifi";
+        response["transport_switching"] = false;
+#endif
         response["ssid"] = stream.ssid();
         response["wifi_configured"] = stream.hasCredentials();
         response["wifi"] = wifiStatusName();
@@ -152,17 +174,82 @@ static void handleConfigCommand(const String& line) {
             network_preferences.begin("ker-net", false);
             network_preferences.putString("ssid", ssid);
             network_preferences.putString("password", password);
+#if defined(USE_RUNTIME)
+            String requested_transport = network_preferences.getString("transport", "usb");
+#endif
             network_preferences.end();
             stream.setCredentials(ssid, password);
+#if defined(USE_RUNTIME)
+            if (requested_transport == "wifi") {
+                g_state.mode = AppMode::STANDBY;
+                if (dataQueue != nullptr) xQueueReset(dataQueue);
+                stream.switchTo(TransportMode::WIFI);
+            }
+#endif
             response["ok"] = true;
+            response["ssid"] = ssid;
+#if defined(USE_RUNTIME)
+            response["transport"] = stream.modeName();
+            response["switching"] = stream.transportSwitching();
+            response["state"] = requested_transport == "wifi"
+                ? "connecting" : "configured";
+#else
             response["state"] = "connecting";
+#endif
         }
     } else if (strcmp(command, "clear_wifi") == 0) {
         network_preferences.begin("ker-net", false);
-        network_preferences.clear();
+        network_preferences.remove("ssid");
+        network_preferences.remove("password");
+#if defined(USE_RUNTIME)
+        network_preferences.putString("transport", "usb");
+#endif
         network_preferences.end();
         stream.clearCredentials();
         response["ok"] = true;
+#if defined(USE_RUNTIME)
+        response["transport"] = stream.modeName();
+#endif
+    } else if (strcmp(command, "set_transport") == 0) {
+#if defined(USE_RUNTIME)
+        String requested_transport = request["transport"] | "";
+        TransportMode requested_mode;
+        if (requested_transport == "usb") {
+            requested_mode = TransportMode::USB;
+        } else if (requested_transport == "wifi") {
+            requested_mode = TransportMode::WIFI;
+        } else {
+            response["ok"] = false;
+            response["error"] = "invalid_transport";
+            sendConfigResponse(response);
+            return;
+        }
+
+        g_state.mode = AppMode::STANDBY;
+        if (dataQueue != nullptr) xQueueReset(dataQueue);
+        if (!stream.switchTo(requested_mode)) {
+            // Remember the user's requested mode. Saving credentials through
+            // CDC will complete the switch without requiring a second click.
+            network_preferences.begin("ker-net", false);
+            network_preferences.putString("transport", requested_transport);
+            network_preferences.end();
+            response["ok"] = true;
+            response["transport"] = stream.modeName();
+            response["requested_transport"] = requested_transport;
+            response["switching"] = false;
+            response["state"] = "awaiting_credentials";
+        } else {
+            network_preferences.begin("ker-net", false);
+            network_preferences.putString("transport", stream.modeName());
+            network_preferences.end();
+            response["ok"] = true;
+            response["transport"] = stream.modeName();
+            response["switching"] = stream.transportSwitching();
+        }
+#else
+        response["ok"] = false;
+        response["error"] = "runtime_transport_unavailable";
+#endif
     } else if (strcmp(command, "get_sensors") == 0) {
         SensorSnapshot snapshot = {};
         bool available = xQueuePeek(guiQueue, &snapshot, 0) == pdTRUE;
@@ -204,7 +291,7 @@ static void handleConfigCommand(const String& line) {
     } else if (strcmp(command, "reboot") == 0) {
         response["ok"] = true;
         sendConfigResponse(response);
-        Serial.flush();
+        KER_CONFIG_SERIAL.flush();
         delay(100);
         ESP.restart();
         return;
@@ -217,8 +304,8 @@ static void handleConfigCommand(const String& line) {
 }
 
 static void serviceConfigConsole() {
-    while (Serial.available() > 0) {
-        char value = static_cast<char>(Serial.read());
+    while (KER_CONFIG_SERIAL.available() > 0) {
+        char value = static_cast<char>(KER_CONFIG_SERIAL.read());
         if (value == '\n') {
             config_line.trim();
             if (!config_line.isEmpty()) handleConfigCommand(config_line);
@@ -365,7 +452,15 @@ void guiTask(void* pvParameters) {
         AppMode current_mode = g_state.mode;
 
         xQueuePeek(guiQueue, &snapshot, 0);
-        #if defined(USE_WIFI)
+        #if defined(USE_RUNTIME)
+            if (stream.mode() == TransportMode::WIFI) {
+                String transport_status = String("WIFI ") + stream.ipAddress();
+                transport_status += stream.clientConnected() ? " C" : " --";
+                gui.setTransportStatus(transport_status);
+            } else {
+                gui.setTransportStatus(stream.mounted() ? "USB CONNECTED" : "USB WAIT");
+            }
+        #elif defined(USE_WIFI)
             String transport_status = String("WIFI ") + stream.ipAddress();
             transport_status += stream.clientConnected() ? " C" : " --";
             gui.setTransportStatus(transport_status);
@@ -444,7 +539,17 @@ void setup() {
         }
     });
 
-    #if defined(USE_USB)
+    #if defined(USE_RUNTIME)
+        config_serial.begin(115200);
+        network_preferences.begin("ker-net", true);
+        String wifi_ssid = network_preferences.getString("ssid", "");
+        String wifi_password = network_preferences.getString("password", "");
+        String saved_transport = network_preferences.getString("transport", "usb");
+        network_preferences.end();
+        TransportMode initial_transport =
+            saved_transport == "wifi" ? TransportMode::WIFI : TransportMode::USB;
+        stream.begin(wifi_ssid, wifi_password, initial_transport);
+    #elif defined(USE_USB)
         stream.begin();
     #elif defined(USE_WIFI)
         Serial.begin(115200);
@@ -481,8 +586,18 @@ void loop() {
     uint8_t               cmd_buf[64];
 
     stream.recv(cmd_buf, sizeof(cmd_buf));
-    #if defined(USE_WIFI)
+    #if defined(USE_RUNTIME) || defined(USE_WIFI)
         serviceConfigConsole();
+    #endif
+
+    #if defined(USE_RUNTIME)
+        if (stream.consumeFallback()) {
+            g_state.mode = AppMode::STANDBY;
+            if (dataQueue != nullptr) xQueueReset(dataQueue);
+            network_preferences.begin("ker-net", false);
+            network_preferences.putString("transport", "usb");
+            network_preferences.end();
+        }
     #endif
 
     if (g_state.ping_requested) {
@@ -494,7 +609,12 @@ void loop() {
     if (g_state.mode == AppMode::STANDBY) {
         vTaskDelay(pdMS_TO_TICKS(10));
     } else {
-        #if defined(USE_WIFI)
+        #if defined(USE_RUNTIME)
+            if (stream.mode() == TransportMode::WIFI && !stream.clientConnected()) {
+                vTaskDelay(pdMS_TO_TICKS(10));
+                return;
+            }
+        #elif defined(USE_WIFI)
             // STREAM is a user-selected mode. Keep it active while waiting for
             // the first client or for a disconnected client to reconnect.
             if (!stream.clientConnected()) {

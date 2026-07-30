@@ -19,7 +19,9 @@ public:
 
     size_t getBinTotal() const { return _bin_total; }
     bool add(const char* key, Type type, size_t count = 1);
-    void begin(const String& ssid, const String& password);
+    void begin(const String& ssid, const String& password, bool enabled = true);
+    void setEnabled(bool enabled);
+    bool enabled() const { return _enabled; }
     void setCredentials(const String& ssid, const String& password);
     void clearCredentials();
     bool mounted();
@@ -63,6 +65,7 @@ private:
     WiFiClient _client;
     bool _server_started;
     bool _mdns_started;
+    bool _enabled;
     bool _error;
     uint32_t _last_wifi_attempt_ms;
     CommandCallback _on_command;

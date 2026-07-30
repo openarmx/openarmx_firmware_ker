@@ -162,6 +162,12 @@ size_t USBStream::recv(uint8_t* buf, size_t len) {
     return received;
 }
 
+void USBStream::clearInput() {
+    uint8_t buffer[64];
+    while (_vendor.read(buffer, sizeof(buffer)) > 0) {
+    }
+}
+
 // sendPingResponse()
 void USBStream::sendPingResponse(const SensorSnapshot& snapshot,
                                  const char* fw, const char* hw,

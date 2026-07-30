@@ -14,6 +14,20 @@
 
 #include "GUIHandler.h"
 
+namespace {
+constexpr int BAR_AREA_Y = 40;
+constexpr int BAR_AREA_HEIGHT = 160;
+constexpr int BAR_WIDTH = 14;
+
+int barCenterX(int canvas_width, int channel_index) {
+    return ((2 * channel_index + 1) * canvas_width) / (2 * NUM_SENSORS);
+}
+
+int barLeftX(int canvas_width, int channel_index) {
+    return barCenterX(canvas_width, channel_index) - BAR_WIDTH / 2;
+}
+}
+
 GUIHandler::GUIHandler() {
     for (int i = 0; i < NUM_SENSORS; i++) _sensor_selected[i] = false;
 }
@@ -41,11 +55,9 @@ GUICommand GUIHandler::tick(const SensorSnapshot& snapshot, AppMode current_mode
 void GUIHandler::drawBars(const SensorSnapshot& snapshot) {
     _canvas->setTextColor(TFT_WHITE);
 
-    const int y_off        = 40;
-    const int area_h       = 160;
-    int bar_width          = _canvas->width() / (NUM_SENSORS + 1);
-    int spacing            = (_canvas->width() - (bar_width * NUM_SENSORS)) / (NUM_SENSORS + 1);
-    int max_bar_height     = area_h - 20;
+    const int bar_baseline = BAR_AREA_Y + BAR_AREA_HEIGHT - 15;
+    const int label_bottom = BAR_AREA_Y + BAR_AREA_HEIGHT - 2;
+    const int max_bar_height = BAR_AREA_HEIGHT - 20;
 
     uint16_t SKY_BLUE = _canvas->color565(135, 206, 235);
 
@@ -63,21 +75,23 @@ void GUIHandler::drawBars(const SensorSnapshot& snapshot) {
             bar_height = (int)(normalized * (float)max_bar_height);
         }
 
-        int x_pos = spacing + i * (bar_width + spacing);
+        int x_pos = barLeftX(_canvas->width(), i);
+        int center_x = barCenterX(_canvas->width(), i);
 
         if (isnan(angle)) {
-            _canvas->fillRect(x_pos, y_off + area_h - max_bar_height - 15,
-                              bar_width, max_bar_height, RED);
+            _canvas->fillRect(x_pos, bar_baseline - max_bar_height,
+                              BAR_WIDTH, max_bar_height, RED);
             _canvas->setTextColor(TFT_WHITE);
-            _canvas->drawCentreString("ERR", x_pos + bar_width / 2,
-                                      y_off + area_h - max_bar_height / 2 - 8);
+            _canvas->drawCentreString("ERR", center_x,
+                                      bar_baseline - max_bar_height / 2 - 8);
         } else {
             uint32_t color = _sensor_selected[i] ? TFT_ORANGE : SKY_BLUE;
-            _canvas->fillRect(x_pos, y_off + area_h - bar_height - 15,
-                              bar_width, bar_height, color);
+            _canvas->fillRect(x_pos, bar_baseline - bar_height,
+                              BAR_WIDTH, bar_height, color);
         }
         _canvas->setTextColor(TFT_WHITE);
-        _canvas->drawNumber(i + 1, x_pos + bar_width / 2, y_off + area_h - 5);
+        _canvas->setTextDatum(bottom_center);
+        _canvas->drawNumber(i + 1, center_x, label_bottom);
     }
 }
 
@@ -161,14 +175,10 @@ GUICommand GUIHandler::handleTouch(AppMode current_mode) {
     const int btn_w   = 140;
     const int btn1_x  = 20;
     const int btn2_x  = 320 - btn_w - 20;
-    const int bar_y   = 40;
-    const int bar_h   = 160;
-    const int bar_w   = _canvas->width() / (NUM_SENSORS + 1);
-    const int spacing = (_canvas->width() - (bar_w * NUM_SENSORS)) / (NUM_SENSORS + 1);
 
     bool zero_btn  = (tp.x >= btn1_x && tp.x <= btn1_x + btn_w && tp.y >= btn_y);
     bool start_btn = (tp.x >= btn2_x && tp.x <= btn2_x + btn_w && tp.y >= btn_y);
-    bool bar_area  = (tp.y >= bar_y && tp.y < bar_y + bar_h);
+    bool bar_area  = (tp.y >= BAR_AREA_Y && tp.y < BAR_AREA_Y + BAR_AREA_HEIGHT);
 
     if (current_mode == AppMode::STREAM) {
         if (start_btn) cmd.type = GUICommand::Type::STOP;
@@ -204,8 +214,8 @@ GUICommand GUIHandler::handleTouch(AppMode current_mode) {
     } else if (bar_area) {
         bool hit = false;
         for (int i = 0; i < NUM_SENSORS; i++) {
-            int x_pos = spacing + i * (bar_w + spacing);
-            if (tp.x >= x_pos && tp.x < x_pos + bar_w) {
+            int x_pos = barLeftX(_canvas->width(), i);
+            if (tp.x >= x_pos && tp.x < x_pos + BAR_WIDTH) {
                 _sensor_selected[i] = !_sensor_selected[i];
                 hit = true;
                 break;
