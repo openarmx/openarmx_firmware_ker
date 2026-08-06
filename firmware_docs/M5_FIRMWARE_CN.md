@@ -1,22 +1,27 @@
 # KER M5 固件使用手册
 
+[English](M5_FIRMWARE.md) | 简体中文
+
 本文说明 KER M5 主控固件的配置、编译、烧录、标定、屏幕操作和通信测试。
 
 ## 1. 固件简介
 
 M5 固件从 RS-485 总线读取 16 路磁编码器，将原始角度转换为 KER 关节角度，再通过
-USB、串口或 WiFi 发送给主机。
+USB Vendor 或 WiFi 发送给主机。
 
 ```text
 16 路编码器
   -> RS-485
   -> M5 角度处理、Zero 和机械偏移
-  -> USB / serial / WiFi
+  -> USB Vendor / WiFi
   -> 测试脚本或 ROS 2 driver
 ```
 
-传输方式在编译时确定。一个固件只启用一种传输方式，不能在运行时同时使用 USB 和
-WiFi。三种固件的数据字段一致：
+产品只使用一个固件。固件默认进入 USB 模式，可通过 KER Studio 在运行时切换 USB 和
+WiFi，不需要重新编译或重启。USB CDC 管理串口始终用于 WiFi 配置、传输切换、状态读取、
+标定和调试；它不是 ROS 数据传输通道。
+
+USB 与 WiFi 不会同时发送关节数据，当前激活的传输方式使用相同的数据字段：
 
 | 字段 | 类型 | 数量 | 说明 |
 |---|---|---:|---|
@@ -39,32 +44,35 @@ firmware/M5/
 
 | 文件 | 作用 |
 |---|---|
-| `platformio.ini` | USB、serial、WiFi 三种编译环境。 |
+| `platformio.ini` | 单一 `ker` 产品固件的 PlatformIO 配置。 |
 | `include/Common.h` | 引脚、16 路编码器方向、机械范围和偏移。 |
 | `include/Meta.h` | 固件版本、硬件版本、USB VID/PID。 |
-| `src/main.cpp` | 采集任务、GUI 任务、数据发送和 Zero 保存。 |
+| `include/RuntimeStream.h` | USB/WiFi 运行时切换接口。 |
+| `src/main.cpp` | 采集、管理命令、GUI 和 Zero 保存。 |
 | `src/GUIHandler.cpp` | 屏幕柱状图和触摸按钮。 |
 | `src/USBStream.cpp` | USB vendor 通信。 |
 | `src/WiFiStream.cpp` | WiFi TCP 服务。 |
+| `src/RuntimeStream.cpp` | 当前传输管理与断线恢复。 |
 
 ### 2.1 WiFi 配置
 
-WiFi 名称和密码不再写入源码。烧录 `wifi` 固件后，通过 USB 连接 M5 并启动上位机：
+WiFi 名称和密码不写入源码。烧录统一的 `ker` 固件后，通过 USB 连接 M5 并启动 KER
+Studio：
 
 ```bash
 cd /home/openflex/openflex_all/openflex_ws/src/m_ker
 python3 tool/m5_configurator/main.py
 ```
 
-在“WiFi 配置”页面选择 M5 串口，扫描或手动填写网络后点击“连接”。配置保存在 M5 的
-NVS 中，断电重启后仍会自动连接；切换网络不需要重新编译或烧录固件。
+在“WiFi 配置”页面选择 M5 管理串口，扫描或手动填写网络并保存。配置保存在 M5 的 NVS
+中，断电重启后仍然有效。保存 WiFi 后可直接将传输方式切换为 WiFi，无需重启。
 
 - M5 使用 2.4 GHz WiFi。
 - 主机名 `openarm-ker` 通常可通过 `openarm-ker.local` 访问。
 - TCP 端口必须与测试脚本和 ROS driver 一致。
-- WiFi 固件的 USB CDC 串口波特率为 `115200`，仅用于配置、标定和调试。
+- USB CDC 管理串口波特率为 `115200`，用于配置、标定和调试。
 - 当前协议没有加密和身份认证，应在可信局域网中使用。
-- WiFi 固件同时只接受一个 TCP 客户端。
+- WiFi 同时只接受一个 TCP 客户端。
 
 ### 2.2 编码器配置
 
@@ -102,40 +110,33 @@ cd /home/openflex/openflex_all/openflex_ws/src/m_ker/firmware/M5
 ### 3.2 编译
 
 ```bash
-# USB 固件
-pio run -e usb
-
-# WiFi 固件
-pio run -e wifi
-
-# 同时检查两种独立固件
-pio run -e usb -e wifi
+pio run
 ```
 
-输出文件分别位于：
+主要输出文件位于：
 
 ```text
-.pio/build/usb/firmware.bin
-.pio/build/wifi/firmware.bin
+.pio/build/ker/firmware.bin
+.pio/build/ker/firmware_merged.bin
 ```
 
-### 3.3 烧录（只需烧录一种）
+`firmware.bin` 只包含应用程序，不能从地址 `0x0` 单独烧录。用于上位机或 `esptool` 单文件
+烧录时必须选择 `firmware_merged.bin`，其中包含 bootloader、分区表、boot application 和
+主应用程序。
 
-用支持数据传输的 USB 线连接 M5。按住复位键 3 秒进入烧录模式。进入M5文件夹下
+### 3.3 烧录
+
+用支持数据传输的 USB 线连接 M5，长按复位键约 3 秒进入烧录模式，然后运行：
 
 ```bash
-# 烧录 USB 固件
-pio run -e usb --target upload
-
-# 烧录 WiFi 固件
-pio run -e wifi --target upload
+pio run --target upload
 ```
 
 指定烧录端口：
 
 ```bash
 pio device list
-pio run -e wifi --target upload --upload-port /dev/ttyACM0
+pio run --target upload --upload-port /dev/ttyACM0
 ```
 
 烧录完成后按一次复位键启动固件。
@@ -218,7 +219,7 @@ python3 firmware/test/wifi_stream_test.py openarm-ker.local
 ```
 
 脚本会执行 TCP 连接、PING/schema、STREAM、checksum 校验，并打印角度、错误位和接收
-频率。测试时不要同时启动 ROS driver，因为 WiFi 固件只允许一个客户端。
+频率。测试时不要同时启动 ROS driver，因为 WiFi 模式只允许一个客户端。
 
 ### 6.2 ROS 测试
 

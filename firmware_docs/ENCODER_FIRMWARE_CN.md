@@ -1,5 +1,7 @@
 # KER 编码器固件使用手册
 
+[English](ENCODER_FIRMWARE.md) | 简体中文
+
 本文说明 KER 磁编码器板的 ID、连接、固件烧录和 RS-485 通信测试。
 
 ## 1. 编码器简介

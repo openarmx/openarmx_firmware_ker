@@ -9,7 +9,7 @@ OpenArmX KER 双臂主手固件。编码器固件通过 RS-485 返回关节传�
 - `M5/` - M5Stack CoreS3 固件、屏幕界面、标定、USB/WiFi 传输和 USB CDC 配置。
 - `encoder/` - ATtiny1616 与 TLE5012B 编码器固件，支持 ID 1-16。
 - `test/` - 编码器 ID 扫描、RS-485 通信诊断和 WiFi 数据流测试。
-- `firmware_docs/` - 编码器和硬件补充说明。
+- `firmware_docs/` - M5 与编码器固件的中英文详细手册。
 
 ## 环境要求
 
@@ -71,8 +71,8 @@ M5 同时只接受一个 WiFi 客户端。运行独立 WiFi 测试前应先停�
 
 ## 详细文档
 
-- [编码器固件手册](firmware_docs/ENCODER_FIRMWARE_CN.md)
-- [M5 源码说明](M5/README.md)
+- [M5 固件手册](firmware_docs/M5_FIRMWARE_CN.md) | [English](firmware_docs/M5_FIRMWARE.md)
+- [编码器固件手册](firmware_docs/ENCODER_FIRMWARE_CN.md) | [English](firmware_docs/ENCODER_FIRMWARE.md)
 
 ## 许可证
 
@@ -91,6 +91,8 @@ M5 同时只接受一个 WiFi 客户端。运行独立 WiFi 测试前应先停�
 ## 版本
 
 **当前 M5 固件版本**：3.3.0
+
+- [v3.3.0 版本说明](release_notes/v3.3.0.md)
 
 ## 致谢
 

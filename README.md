@@ -9,7 +9,7 @@ Firmware for the OpenArmX KER bimanual leader device. The encoder firmware reads
 - `M5/` - M5Stack CoreS3 firmware, display UI, calibration, USB/WiFi transport, and USB CDC configuration.
 - `encoder/` - ATtiny1616 and TLE5012B encoder firmware with IDs 1-16.
 - `test/` - Encoder ID scanning, RS-485 diagnostics, and WiFi stream tests.
-- `firmware_docs/` - Additional encoder and hardware notes.
+- `firmware_docs/` - Detailed M5 and encoder firmware guides in English and Chinese.
 
 ## Requirements
 
@@ -71,8 +71,8 @@ Only one WiFi client can connect to the M5 at a time. Stop the ROS driver before
 
 ## Documentation
 
-- [Encoder firmware guide](firmware_docs/ENCODER_FIRMWARE_CN.md)
-- [M5 source documentation](M5/README.md)
+- [M5 firmware guide](firmware_docs/M5_FIRMWARE.md) | [简体中文](firmware_docs/M5_FIRMWARE_CN.md)
+- [Encoder firmware guide](firmware_docs/ENCODER_FIRMWARE.md) | [简体中文](firmware_docs/ENCODER_FIRMWARE_CN.md)
 
 ## License
 
@@ -91,6 +91,8 @@ For details, see the [LICENSE](LICENSE.txt) file or visit: http://creativecommon
 ## Version
 
 **Current M5 Firmware Version**: 3.3.0
+
+- [v3.3.0 Release Notes](release_notes/v3.3.0.md)
 
 ## Acknowledgments
 
