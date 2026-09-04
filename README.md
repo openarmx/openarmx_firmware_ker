@@ -90,9 +90,9 @@ For details, see the [LICENSE](LICENSE.txt) file or visit: http://creativecommon
 
 ## Version
 
-**Current M5 Firmware Version**: 3.3.0
+**Current M5 Firmware Version**: 3.3.1
 
-- [v3.3.0 Release Notes](release_notes/v3.3.0.md)
+- Release notes will be generated for v3.3.1 by the release workflow.
 
 ## Acknowledgments
 

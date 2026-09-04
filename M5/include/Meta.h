@@ -18,8 +18,8 @@
 #define FW_VERSION_USB    "3.2.0-usb"
 #define FW_VERSION_SERIAL "3.2.0-serial"
 #define FW_VERSION_WIFI   "3.2.0-wifi"
-#define FW_VERSION_RUNTIME "3.3.0"
-#define FW_VERSION         "3.3.0"
+#define FW_VERSION_RUNTIME "3.3.1"
+#define FW_VERSION         "3.3.1"
 #define HW_VERSION   "3.0.0"
 #define LAST_UPDATED "2026-07-30"
 #define KER_USB_VID 0x303A
