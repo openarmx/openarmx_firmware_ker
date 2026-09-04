@@ -389,10 +389,10 @@ void acquisitionTask(void* pvParameters) {
                 angle += ENCODER_CONFIG[i].mech_joint_offset;
 
                 // Avoid +/-360 jump at initialization when sensor and expected position are on opposite sides of 0/360 boundary
-                if(angle > ENCODER_CONFIG[i].mech_max + MARGIN_DEG){
+                if(!ENCODER_CONFIG[i].skip_jump_detect && angle > ENCODER_CONFIG[i].mech_max + MARGIN_DEG){
                     angle -= 360.0f;
                 }
-                else if (angle < ENCODER_CONFIG[i].mech_min - MARGIN_DEG)
+                else if (!ENCODER_CONFIG[i].skip_jump_detect && angle < ENCODER_CONFIG[i].mech_min - MARGIN_DEG)
                 {
                     angle += 360.0f;
                 }

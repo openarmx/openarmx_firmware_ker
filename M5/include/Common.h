@@ -79,6 +79,7 @@ struct EncoderConfig {
     float mech_min;
     float mech_max;
     float mech_joint_offset;
+    bool  skip_jump_detect;
 };
 
 const EncoderConfig ENCODER_CONFIG[NUM_SENSORS] = {
@@ -89,7 +90,7 @@ const EncoderConfig ENCODER_CONFIG[NUM_SENSORS] = {
     {false,    -90.00f,    90.00f,    0.0f},       // ch3   right joint3
     {true,       0.00f,   140.00f,    0.0f},       // ch4   right joint4
     {false,    -90.00f,    90.00f,    0.0f},       // ch5   right joint5
-    {true,     -45.00f,    45.00f,    0.0f},       // ch6   right joint6
+    {true,     -45.00f,    45.00f,    0.0f,        true}, // ch6   right joint6
     {true,     -90.00f,    90.00f,    0.00f},      // ch7   right joint7
     {false,    -90.00f,     5.73f,    0.00f},      // ch8   right gripper
 
@@ -98,7 +99,7 @@ const EncoderConfig ENCODER_CONFIG[NUM_SENSORS] = {
     {false,    -90.00f,    90.00f,    0.00f},      // ch11  left  joint3
     {false,      0.00f,   140.00f,    0.00f},      // ch12  left  joint4
     {false,    -90.00f,    90.00f,    0.00f},      // ch13  left  joint5
-    {true,     -45.00f,    45.00f,    0.00f},      // ch14  left  joint6
+    {true,     -45.00f,    45.00f,    0.00f,       true}, // ch14  left  joint6
     {true,     -90.00f,    90.00f,    0.00f},      // ch15  left  joint7
     {false,     -5.73f,    60.00f,    0.00f},      // ch16  left  gripper
 
