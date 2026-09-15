@@ -5,6 +5,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiUdp.h>
 
 #include "Common.h"
 #include "Meta.h"
@@ -14,6 +15,9 @@ class WiFiStream {
 public:
     static const size_t MAX_FIELDS = 32;
     static const size_t MAX_BUF = 512;
+    // Application-level UDP lease.  Heartbeats are intentionally tolerant of
+    // weak Wi-Fi; the PC side sends one heartbeat per second.
+    static constexpr uint32_t HEARTBEAT_TIMEOUT_MS = 30000;
 
     WiFiStream();
 
@@ -61,13 +65,18 @@ private:
     static const size_t COMMAND_FRAME_SIZE = 6;
     static const size_t COMMAND_BUFFER_SIZE = 128;
 
-    WiFiServer _server;
-    WiFiClient _client;
+    WiFiUDP _udp;
     bool _server_started;
     bool _mdns_started;
     bool _enabled;
     bool _error;
     uint32_t _last_wifi_attempt_ms;
+    uint32_t _last_heartbeat_ms;
+    IPAddress _remote_ip;
+    uint16_t _remote_port;
+    IPAddress _command_ip;
+    uint16_t _command_port;
+    bool _session_active;
     CommandCallback _on_command;
 
     FieldDef _fields[MAX_FIELDS];
@@ -81,9 +90,9 @@ private:
 
     void maintainNetwork();
     void resetNetworkServices();
-    void dropClient();
+    void resetSession();
     void parseCommands();
-    bool writeAll(const uint8_t* data, size_t len, uint32_t timeout_ms);
+    bool sendDatagram(const uint8_t* data, size_t len);
     FieldDef* _find(const char* key);
     uint8_t _checksum() const;
     static size_t _typeSize(Type type);

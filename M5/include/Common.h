@@ -92,7 +92,12 @@ const EncoderConfig ENCODER_CONFIG[NUM_SENSORS] = {
     {false,    -90.00f,    90.00f,    0.0f},       // ch5   right joint5
     {true,     -45.00f,    45.00f,    0.0f,        true}, // ch6   right joint6
     {true,     -90.00f,    90.00f,    0.00f},      // ch7   right joint7
-    {false,    -90.00f,     5.73f,    0.00f},      // ch8   right gripper
+    // Grippers must not use the runtime +/-360 degree correction in
+    // acquisitionTask(): their normal travel crosses that correction
+    // threshold (mech_max + MARGIN_DEG).  AngleProcessor already unwraps
+    // their encoder readings, so skipping this legacy correction prevents
+    // the +/-30 degree -> +/-330 degree jump.
+    {false,    -90.00f,     5.73f,    0.00f,       true}, // ch8   right gripper
 
     {false,   -160.00f,    80.00f,    0.00f},      // ch9   left  joint1
     {true,    -160.00f,    10.00f,    0.00f},      // ch10  left  joint2
@@ -101,7 +106,7 @@ const EncoderConfig ENCODER_CONFIG[NUM_SENSORS] = {
     {false,    -90.00f,    90.00f,    0.00f},      // ch13  left  joint5
     {true,     -45.00f,    45.00f,    0.00f,       true}, // ch14  left  joint6
     {true,     -90.00f,    90.00f,    0.00f},      // ch15  left  joint7
-    {false,     -5.73f,    60.00f,    0.00f},      // ch16  left  gripper
+    {false,     -5.73f,    60.00f,    0.00f,       true}, // ch16  left  gripper
 
     // debug right using mech stop
     // {false,    -80.00f,   160.00f,    -80.0f},        // ch1   right joint1

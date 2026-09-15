@@ -6,12 +6,17 @@
 #include <ESPmDNS.h>
 
 WiFiStream::WiFiStream()
-    : _server(KER_WIFI_PORT)
-    , _server_started(false)
+    : _server_started(false)
     , _mdns_started(false)
     , _enabled(false)
     , _error(false)
     , _last_wifi_attempt_ms(0)
+    , _last_heartbeat_ms(0)
+    , _remote_ip(0, 0, 0, 0)
+    , _remote_port(0)
+    , _command_ip(0, 0, 0, 0)
+    , _command_port(0)
+    , _session_active(false)
     , _on_command(nullptr)
     , _field_count(0)
     , _bin_total(0)
@@ -75,17 +80,17 @@ void WiFiStream::clearCredentials() {
     _password = "";
 }
 
-void WiFiStream::dropClient() {
-    if (_client) {
-        _client.stop();
-    }
+void WiFiStream::resetSession() {
     _command_size = 0;
+    _session_active = false;
+    _remote_port = 0;
+    _command_port = 0;
 }
 
 void WiFiStream::resetNetworkServices() {
-    dropClient();
+    resetSession();
     if (_server_started) {
-        _server.end();
+        _udp.stop();
         _server_started = false;
     }
     if (_mdns_started) {
@@ -107,28 +112,26 @@ void WiFiStream::maintainNetwork() {
         return;
     }
 
+    // UDP has no connection to accept.  Bind once to the KER port so command
+    // datagrams (PING/START/heartbeat) can be received from any PC.
     if (!_server_started) {
-        _server.begin();
-        _server.setNoDelay(true);
+        _udp.begin(KER_WIFI_PORT);
         _server_started = true;
     }
     if (!_mdns_started) {
         _mdns_started = MDNS.begin(KER_WIFI_HOSTNAME);
         if (_mdns_started) {
-            MDNS.addService("openarm-ker", "tcp", KER_WIFI_PORT);
+            MDNS.addService("openarm-ker", "udp", KER_WIFI_PORT);
         }
     }
 
-    if (_client && !_client.connected()) {
-        dropClient();
-    }
-    if (!_client || !_client.connected()) {
-        WiFiClient candidate = _server.available();
-        if (candidate) {
-            _client = candidate;
-            _client.setNoDelay(true);
-            _command_size = 0;
-        }
+    if (_session_active && millis() - _last_heartbeat_ms > HEARTBEAT_TIMEOUT_MS) {
+        // A long, configurable grace period avoids false stops on weak Wi-Fi,
+        // while still revoking an abandoned PC's stream authorization.
+        uint8_t standby[1] = {0x01};
+        if (_on_command) _on_command(standby, 1);
+        _session_active = false;
+        _remote_port = 0;
     }
 }
 
@@ -142,7 +145,7 @@ bool WiFiStream::wifiConnected() {
 }
 
 bool WiFiStream::clientConnected() {
-    return _client && _client.connected();
+    return _session_active && _remote_port != 0 && wifiConnected();
 }
 
 String WiFiStream::ipAddress() {
@@ -212,38 +215,26 @@ uint8_t WiFiStream::_checksum() const {
     return checksum;
 }
 
-bool WiFiStream::writeAll(const uint8_t* data, size_t len, uint32_t timeout_ms) {
-    if (!clientConnected()) return false;
-    size_t sent = 0;
-    uint32_t last_progress = millis();
-    while (sent < len && clientConnected()) {
-        size_t written = _client.write(data + sent, len - sent);
-        if (written > 0) {
-            sent += written;
-            last_progress = millis();
-        } else if (millis() - last_progress > timeout_ms) {
-            dropClient();
-            return false;
-        } else {
-            delay(1);
-        }
-    }
-    if (sent != len) {
-        dropClient();
-        return false;
-    }
-    return true;
+bool WiFiStream::sendDatagram(const uint8_t* data, size_t len) {
+    if (!clientConnected() || len == 0) return false;
+    if (!_udp.beginPacket(_remote_ip, _remote_port)) return false;
+    size_t written = _udp.write(data, len);
+    return written == len && _udp.endPacket() == 1;
 }
 
 bool WiFiStream::send() {
     maintainNetwork();
     if (_error || !clientConnected()) return false;
+
     uint8_t out[MAX_BUF + 3];
     out[0] = 0xA5;
     out[1] = 0x5A;
     memcpy(out + 2, _bin_buf, _bin_total);
     out[_bin_total + 2] = _checksum();
-    return writeAll(out, _bin_total + 3, 20);
+
+    const size_t frame_size = _bin_total + 3;
+
+    return sendDatagram(out, frame_size);
 }
 
 void WiFiStream::parseCommands() {
@@ -264,8 +255,27 @@ void WiFiStream::parseCommands() {
             memmove(_command_buf, _command_buf + 1, --_command_size);
             continue;
         }
-        if (_on_command) {
-            _on_command(_command_buf + 2, 3);
+        const uint8_t command = _command_buf[2];
+        const bool peer_matches = _session_active &&
+            _command_ip == _remote_ip && _command_port == _remote_port;
+
+        // PING is the explicit UDP handshake.  It selects the destination
+        // endpoint, refreshes its lease, and lets main.cpp return the schema.
+        // A reconnecting PC simply sends PING again from its new UDP port.
+        if (command == 0x00) {
+            _remote_ip = _command_ip;
+            _remote_port = _command_port;
+            _session_active = true;
+            _last_heartbeat_ms = millis();
+            if (_on_command) _on_command(_command_buf + 2, 3);
+        } else if (peer_matches) {
+            // Heartbeats prove the selected PC is still present.  They do
+            // not change the streaming state, whereas START/STOP and the
+            // existing calibration commands retain their old semantics.
+            _last_heartbeat_ms = millis();
+            if (command != 0x05 && _on_command) {
+                _on_command(_command_buf + 2, 3);
+            }
         }
         memmove(_command_buf, _command_buf + COMMAND_FRAME_SIZE,
                 _command_size - COMMAND_FRAME_SIZE);
@@ -275,18 +285,20 @@ void WiFiStream::parseCommands() {
 
 size_t WiFiStream::recv(uint8_t* /*buf*/, size_t /*len*/) {
     maintainNetwork();
-    if (!clientConnected()) return 0;
     size_t received = 0;
-    while (_client.available() > 0) {
-        if (_command_size == COMMAND_BUFFER_SIZE) {
-            _command_size = 0;
+    int packet_size;
+    while ((packet_size = _udp.parsePacket()) > 0) {
+        if (packet_size > static_cast<int>(COMMAND_BUFFER_SIZE)) {
+            uint8_t discard[COMMAND_BUFFER_SIZE];
+            _udp.read(discard, sizeof(discard));
+            continue;
         }
-        int value = _client.read();
-        if (value < 0) break;
-        _command_buf[_command_size++] = static_cast<uint8_t>(value);
-        ++received;
+        _command_ip = _udp.remoteIP();
+        _command_port = _udp.remotePort();
+        _command_size = _udp.read(_command_buf, COMMAND_BUFFER_SIZE);
+        received += _command_size;
+        parseCommands();
     }
-    parseCommands();
     return received;
 }
 
@@ -314,7 +326,7 @@ void WiFiStream::sendPingResponse(const SensorSnapshot& snapshot,
         memcpy(out + pos, &snapshot.sensors[i].angle, 4); pos += 4;
         out[pos++] = snapshot.sensors[i].error ? 0 : 1;
     }
-    writeAll(out, pos, 100);
+    sendDatagram(out, pos);
 }
 
 size_t WiFiStream::_typeSize(Type type) {
