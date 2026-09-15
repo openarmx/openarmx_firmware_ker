@@ -1,0 +1,145 @@
+name: Build and Release Firmware
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build, for example v3.3.2
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: firmware-release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build-release:
+    name: Build M5 and Encoder firmware
+    runs-on: ubuntu-22.04
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: platformio-${{ runner.os }}-${{ hashFiles('M5/platformio.ini', 'encoder/platformio.ini') }}
+          restore-keys: |
+            platformio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: python -m pip install --upgrade platformio
+
+      - name: Build M5 merged image
+        working-directory: M5
+        run: |
+          pio run -e ker
+          test -s .pio/build/ker/firmware_merged.bin
+
+      - name: Build Encoder IDs 1 to 16
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release/encoder
+          for id in $(seq 1 16); do
+            echo "Building Encoder ID ${id}"
+            # Clean only the environment output so each DEVICE_ID is compiled.
+            pio run -d encoder -e ATtiny1616 -t clean
+            PLATFORMIO_BUILD_FLAGS="-DDEVICE_ID=${id}" \
+              pio run -d encoder -e ATtiny1616
+            hex_path="encoder/.pio/build/ATtiny1616/firmware.hex"
+            test -s "$hex_path"
+            printf -v output_name 'firmware_ID%02d.hex' "$id"
+            cp "$hex_path" "release/encoder/$output_name"
+          done
+          test "$(find release/encoder -maxdepth 1 -name 'firmware_ID*.hex' | wc -l)" -eq 16
+
+      - name: Assemble release package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          package_root="release/openarmx-ker-firmware-${RELEASE_TAG}"
+          mkdir -p "$package_root/encoder" "$package_root/m5"
+          cp release/encoder/firmware_ID*.hex "$package_root/encoder/"
+          cp M5/.pio/build/ker/firmware_merged.bin "$package_root/m5/m5_ker_merged.bin"
+
+          python - "$package_root/manifest.json" "$version" "$(git rev-parse HEAD)" <<'PY'
+          import json
+          import sys
+          from datetime import datetime, timezone
+          output, version, source_sha = sys.argv[1:]
+          manifest = {
+              "version": version,
+              "source_sha": source_sha,
+              "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+              "encoders": 16,
+              "m5_image": "m5/m5_ker_merged.bin",
+          }
+          with open(output, "w", encoding="utf-8") as stream:
+              json.dump(manifest, stream, indent=2)
+              stream.write("\n")
+          PY
+
+          # This checksum file is inside the ZIP and covers every firmware file.
+          (
+            cd "$package_root"
+            sha256sum encoder/firmware_ID*.hex m5/m5_ker_merged.bin > SHA256SUMS
+          )
+
+          zip_path="release/openarmx-ker-firmware-${RELEASE_TAG}.zip"
+          (
+            cd "$package_root"
+            zip -qr "../$(basename "$zip_path")" encoder m5 manifest.json SHA256SUMS
+          )
+          test -s "$zip_path"
+          # The outer checksum must contain only the archive basename; the
+          # configurator looks it up by archive.name.
+          (
+            cd release
+            sha256sum "$(basename "$zip_path")" > SHA256SUMS
+          )
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous_tag="$(git tag --sort=-version:refname | grep -Fxv "$RELEASE_TAG" | head -n 1 || true)"
+          {
+            echo "OpenArmX KER Firmware ${RELEASE_TAG}"
+            echo
+            echo "本版本由 GitHub Actions 自动编译，包含 16 个 Encoder 固件和统一 M5 合并镜像。"
+            echo
+            if [[ -n "$previous_tag" ]]; then
+              echo "Full Changelog: https://github.com/${GITHUB_REPOSITORY}/compare/${previous_tag}...${RELEASE_TAG}"
+            fi
+          } > release/release-notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: OpenArmX KER Firmware ${{ env.RELEASE_TAG }}
+          body_path: release/release-notes.md
+          files: |
+            release/openarmx-ker-firmware-${{ env.RELEASE_TAG }}.zip
+            release/SHA256SUMS
+          fail_on_unmatched_files: true
