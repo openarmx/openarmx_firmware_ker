@@ -102,6 +102,13 @@ M5 同时只接受一个 WiFi 客户端。运行独立 WiFi 测试前应先停�
 [Gitee](https://gitee.com/chengdu-changshu-robot/openarmx_firmware_ker/releases)。
 标签必须与 `M5/include/Meta.h` 中的 `FW_VERSION` 一致。
 
+M5 构建固定使用 Espressif32 7.1.1（Arduino ESP32 2.0.17）及已验证的库版本，
+避免 CI 自动升级到不兼容的工具链。若已有标签发布失败，请先提交并推送构建修复，
+再到 GitHub Actions → **Build and Release Firmware** → **Run workflow**，
+选择包含修复的 `main` 分支，将 `tag` 填为 `v3.3.3`。
+固件源码仍取自该标签，M5 构建配置取自所选工作流提交；两者提交号均记录在发布包的
+`manifest.json` 中。无需删除或重建标签；直接重跑旧任务不会加载新的工作流修复。
+
 请在 GitHub 仓库的 **Settings → Secrets and variables → Actions** 中配置：
 
 - `GITEE_SSH_PRIVATE_KEY`：SSH 私钥，对应公钥需有 Gitee 仓库写权限。

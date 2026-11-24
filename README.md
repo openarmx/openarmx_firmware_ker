@@ -103,6 +103,14 @@ the release notes and all assets to
 [Gitee](https://gitee.com/chengdu-changshu-robot/openarmx_firmware_ker/releases).
 The tag must match `FW_VERSION` in `M5/include/Meta.h`.
 
+M5 builds pin Espressif32 7.1.1 (Arduino ESP32 2.0.17) and validated library
+versions. To retry a failed release for an existing tag, first commit and push
+the build fix, then open GitHub Actions → **Build and Release Firmware** →
+**Run workflow**, select the updated `main` branch, and enter `v3.3.3` as `tag`.
+Firmware sources come from the tag; the M5 build configuration comes from the
+selected workflow commit. Both commit IDs are recorded in `manifest.json`.
+There is no need to recreate the tag. Re-running an old job uses its old workflow.
+
 Configure these GitHub repository secrets under **Settings → Secrets and
 variables → Actions**:
 

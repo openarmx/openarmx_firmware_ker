@@ -24,6 +24,7 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      BUILD_CONFIG_SHA: ${{ github.workflow_sha }}
 
     steps:
       - name: Check out release tag
@@ -31,6 +32,19 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
           fetch-depth: 0
+
+      - name: Prepare release build configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Keep firmware sources at the release tag, but allow a fixed build
+          # configuration from the selected workflow to rebuild existing tags.
+          if ! git cat-file -e "$BUILD_CONFIG_SHA^{commit}"; then
+            git fetch origin "$BUILD_CONFIG_SHA"
+          fi
+          git show "$BUILD_CONFIG_SHA:M5/platformio.ini" > M5/platformio.release.ini
+          echo "Firmware source: $(git rev-parse HEAD)"
+          echo "Build configuration: $BUILD_CONFIG_SHA"
 
       - name: Check firmware version matches release tag
         shell: bash
@@ -50,24 +64,37 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.x"
+          python-version: "3.10"
 
       - name: Cache PlatformIO packages
         uses: actions/cache@v5
         with:
           path: ~/.platformio
-          key: platformio-${{ runner.os }}-${{ hashFiles('M5/platformio.ini', 'encoder/platformio.ini') }}
+          key: platformio-v2-${{ runner.os }}-py310-${{ hashFiles('M5/platformio.release.ini', 'encoder/platformio.ini') }}
           restore-keys: |
-            platformio-${{ runner.os }}-
+            platformio-v2-${{ runner.os }}-py310-
 
       - name: Install PlatformIO
-        run: python -m pip install --upgrade platformio
+        run: python -m pip install platformio==6.2.0
 
       - name: Build M5 merged image
         working-directory: M5
+        shell: bash
         run: |
-          pio run -e ker
-          test -s .pio/build/ker/firmware_merged.bin
+          set -euo pipefail
+          pio run -c platformio.release.ini -e ker 2>&1 | tee build-m5.log
+          if [[ ! -s .pio/build/ker/firmware_merged.bin ]]; then
+            echo "::error::PlatformIO completed without generating M5/.pio/build/ker/firmware_merged.bin. Check scripts/merge_firmware.py and the build log."
+            exit 1
+          fi
+
+      - name: Save failed M5 build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m5-build-log
+          path: M5/build-m5.log
+          if-no-files-found: ignore
 
       - name: Build Encoder IDs 1 to 16
         shell: bash
@@ -97,14 +124,15 @@ jobs:
           cp release/encoder/firmware_ID*.hex "$package_root/encoder/"
           cp M5/.pio/build/ker/firmware_merged.bin "$package_root/m5/m5_ker_merged.bin"
 
-          python - "$package_root/manifest.json" "$version" "$(git rev-parse HEAD)" <<'PY'
+          python - "$package_root/manifest.json" "$version" "$(git rev-parse HEAD)" "$BUILD_CONFIG_SHA" <<'PY'
           import json
           import sys
           from datetime import datetime, timezone
-          output, version, source_sha = sys.argv[1:]
+          output, version, source_sha, build_config_sha = sys.argv[1:]
           manifest = {
               "version": version,
               "source_sha": source_sha,
+              "build_config_sha": build_config_sha,
               "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
               "encoders": 16,
               "m5_image": "m5/m5_ker_merged.bin",
