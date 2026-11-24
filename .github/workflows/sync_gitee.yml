@@ -192,6 +192,43 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
+          report_response() {
+            python3 - "$1" <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+          from urllib.parse import quote, quote_plus
+
+          response = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+          for key in ("GITEE_ACCESS_TOKEN", "GH_TOKEN"):
+              token = os.environ.get(key, "")
+              if token:
+                  for value in (token, quote(token, safe=""), quote_plus(token)):
+                      response = response.replace(value, "***")
+          for line in response[:4000].splitlines():
+              print(f"Gitee response: {line}", file=sys.stderr)
+          PY
+          }
+          # Gitee returns HTTP 200 with JSON null when a Release is missing.
+          # Validate IDs explicitly so malformed responses cannot fail silently.
+          read_release_id() {
+            python3 - "$1" "$2" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          try:
+              response = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          except (ValueError, OSError):
+              raise SystemExit(1)
+          if response is None and sys.argv[2] == "allow-missing":
+              raise SystemExit(0)
+          release_id = response.get("id") if isinstance(response, dict) else None
+          if type(release_id) is not int or release_id <= 0:
+              raise SystemExit(1)
+          print(release_id)
+          PY
+          }
           tag="$RELEASE_TAG"
           name="$(jq -r '.name // .tag_name' github-release.json)"
           body="$(jq -r '.body // ""' github-release.json)"
@@ -206,11 +243,16 @@ jobs:
               "https://gitee.com/api/v5/repos/$GITEE_REPOSITORY/releases/tags/$tag"
           )"
           if [[ "$lookup_status" == "200" ]]; then
-            existing_id="$(jq -er '.id' gitee-release-lookup.json)"
+            if ! existing_id="$(read_release_id gitee-release-lookup.json allow-missing)"; then
+              echo "::error::Gitee Release lookup returned an invalid response (HTTP 200)." >&2
+              report_response gitee-release-lookup.json
+              exit 1
+            fi
           elif [[ "$lookup_status" == "404" ]]; then
             existing_id=""
           else
             echo "Gitee Release lookup failed with HTTP $lookup_status" >&2
+            report_response gitee-release-lookup.json
             exit 1
           fi
           if [[ -n "$existing_id" ]]; then
@@ -219,6 +261,7 @@ jobs:
               "https://gitee.com/api/v5/repos/$GITEE_REPOSITORY/releases/$existing_id?access_token=$GITEE_ACCESS_TOKEN"
           fi
 
+          echo "Creating Gitee Release $tag"
           release_status="$(
             curl --silent --show-error \
               --request POST \
@@ -233,10 +276,14 @@ jobs:
           )"
           if [[ ! "$release_status" =~ ^2 ]]; then
             echo "Gitee Release creation failed with HTTP $release_status" >&2
+            report_response gitee-release-response.json
             exit 1
           fi
-          release_response="$(cat gitee-release-response.json)"
-          release_id="$(jq -er '.id' <<< "$release_response")"
+          if ! release_id="$(read_release_id gitee-release-response.json required)"; then
+            echo "::error::Gitee Release creation returned no valid Release ID (HTTP $release_status)." >&2
+            report_response gitee-release-response.json
+            exit 1
+          fi
 
           for asset in release-assets/*; do
             asset_status="$(
@@ -249,6 +296,7 @@ jobs:
             )"
             if [[ ! "$asset_status" =~ ^2 ]]; then
               echo "Gitee asset upload failed with HTTP $asset_status: $(basename "$asset")" >&2
+              report_response gitee-asset-response.json
               exit 1
             fi
             echo "Uploaded $(basename "$asset")"
