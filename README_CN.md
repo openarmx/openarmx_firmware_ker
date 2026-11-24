@@ -78,21 +78,38 @@ M5 同时只接受一个 WiFi 客户端。运行独立 WiFi 测试前应先停�
 
 本项目采用知识共享署名-非商业性使用-相同方式共享 4.0 国际许可证（CC BY-NC-SA 4.0）。
 
-版权所有 (c) 2026 成都长数机器人有限公司。
+版权所有 (c) 2026 原初智能机器人有限公司。
 
 详细信息请查看 [LICENSE](LICENSE.txt)，或访问：http://creativecommons.org/licenses/by-nc-sa/4.0/
 
 ## 作者
 
-- **张力** (Zhang Li)
-- 公司：成都长数机器人有限公司
+- **魏林栋** (Wei Lindong)
+- **赵天赫** (Zhao Tianhe)
+- 公司：原初智能机器人有限公司
 - 网站：https://openarmx.com/
 
 ## 版本
 
-**当前 M5 固件版本**：3.3.1
+**当前 M5 固件版本**：3.3.3
 
-- v3.3.1 版本说明将由 Release 工作流自动生成。
+- v3.3.3 版本说明将由 Release 工作流自动生成。
+
+## GitHub 与 Gitee 发布同步
+
+推送版本标签后，**Build and Release Firmware** 会编译固件并创建 GitHub Release，
+随后直接调用 **Sync to Gitee**，推送分支和标签，并将发布说明及所有附件同步到
+[Gitee](https://gitee.com/chengdu-changshu-robot/openarmx_firmware_ker/releases)。
+标签必须与 `M5/include/Meta.h` 中的 `FW_VERSION` 一致。
+
+请在 GitHub 仓库的 **Settings → Secrets and variables → Actions** 中配置：
+
+- `GITEE_SSH_PRIVATE_KEY`：SSH 私钥，对应公钥需有 Gitee 仓库写权限。
+- `GITEE_ACCESS_TOKEN`：Gitee 访问令牌，需有该仓库的 Release 创建和附件上传权限。
+
+凭据保存在 GitHub Secrets 中，工作流文件只引用名称。缺少凭据时，同步会明确报错。
+如需补同步已有 GitHub Release，可手动运行 **Sync to Gitee**，将 `release_tag` 填为对应标签，
+例如 `v3.3.3`。重复运行会替换 Gitee 中同标签的 Release，并重新上传 GitHub 附件。
 
 ## 致谢
 
@@ -102,7 +119,7 @@ M5 同时只接受一个 WiFi 客户端。运行独立 WiFi 测试前应先停�
 
 ## 联系我们
 
-### 成都长数机器人有限公司
+### 原初智能机器人有限公司
 
 | 联系方式 | 信息 |
 |---|---|

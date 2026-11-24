@@ -1,4 +1,4 @@
-// Copyright 2026 Chengdu Changshu Robot Co., Ltd.
+// Copyright 2026 原初智能机器人有限公司
 // Licensed under the Apache License, Version 2.0.
 
 #include "WiFiStream.h"

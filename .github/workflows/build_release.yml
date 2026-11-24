@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing version tag to build, for example v3.3.2
+        description: Existing version tag to build, for example v3.3.3
         required: true
         type: string
 
@@ -31,6 +31,21 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
           fetch-depth: 0
+
+      - name: Check firmware version matches release tag
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          metadata = Path("M5/include/Meta.h").read_text(encoding="utf-8")
+          version = re.search(r'^#define\s+FW_VERSION\s+"([^"]+)"', metadata, re.MULTILINE).group(1)
+          expected_tag = f"v{version}"
+          if os.environ["RELEASE_TAG"] != expected_tag:
+              raise SystemExit(f"Release tag must be {expected_tag} to match M5/include/Meta.h")
+          PY
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -143,3 +158,14 @@ jobs:
             release/openarmx-ker-firmware-${{ env.RELEASE_TAG }}.zip
             release/SHA256SUMS
           fail_on_unmatched_files: true
+
+  sync-gitee:
+    name: Sync published firmware to Gitee
+    needs: build-release
+    # Releases created with GITHUB_TOKEN do not trigger another release workflow.
+    uses: ./.github/workflows/sync_gitee.yml
+    with:
+      release_tag: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    secrets:
+      GITEE_SSH_PRIVATE_KEY: ${{ secrets.GITEE_SSH_PRIVATE_KEY }}
+      GITEE_ACCESS_TOKEN: ${{ secrets.GITEE_ACCESS_TOKEN }}

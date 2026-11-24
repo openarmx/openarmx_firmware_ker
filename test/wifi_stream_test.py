@@ -18,7 +18,7 @@ DEFAULT_CONNECT_TIMEOUT_S = 3.0
 DEFAULT_SOCKET_TIMEOUT_S = 0.2
 DEFAULT_SCHEMA_TIMEOUT_S = 5.0
 DEFAULT_DATA_TIMEOUT_S = 3.0
-DEFAULT_EXPECT_FW_PREFIX = '3.1.0-wifi'
+DEFAULT_EXPECT_FW_PREFIX = ''
 
 HEADER_COMMAND = b'\xA5\x43'
 HEADER_PING = b'\xA5\x50'
@@ -300,7 +300,8 @@ def parse_args() -> argparse.Namespace:
                         default=DEFAULT_SCHEMA_TIMEOUT_S)
     parser.add_argument('--data-timeout', type=float,
                         default=DEFAULT_DATA_TIMEOUT_S)
-    parser.add_argument('--expect-fw-prefix', default=DEFAULT_EXPECT_FW_PREFIX)
+    parser.add_argument('--expect-fw-prefix', default=DEFAULT_EXPECT_FW_PREFIX,
+                        help='optional firmware prefix to require; disabled by default')
     args = parser.parse_args()
     if not 1 <= args.port <= 65535:
         parser.error('--port must be between 1 and 65535')

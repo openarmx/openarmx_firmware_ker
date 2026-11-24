@@ -15,16 +15,17 @@
 // include/Meta.h
 #pragma once
 
-#define FW_VERSION_USB    "3.2.0-usb"
-#define FW_VERSION_SERIAL "3.2.0-serial"
-#define FW_VERSION_WIFI   "3.2.0-wifi"
-#define FW_VERSION_RUNTIME "3.3.1"
-#define FW_VERSION         "3.3.1"
+#define FW_VERSION "3.3.3"
+#define FW_VERSION_USB     FW_VERSION "-usb"
+#define FW_VERSION_SERIAL  FW_VERSION "-serial"
+#define FW_VERSION_WIFI    FW_VERSION "-wifi"
+#define FW_VERSION_RUNTIME FW_VERSION
+// Hardware revision is independent of the firmware release version.
 #define HW_VERSION   "3.0.0"
 #define LAST_UPDATED "2026-07-30"
 #define KER_USB_VID 0x303A
 #define KER_USB_PID 0x4002
-#define MANUFACTURER "Enactic, Inc."
-#define PRODUCT "OpenArm KER 2.0.0"
+#define MANUFACTURER "原初智能机器人有限公司"
+#define PRODUCT "OpenArm KER"
 #define KER_WIFI_HOSTNAME "openarm-ker"
 #define KER_WIFI_PORT 19090

@@ -78,21 +78,42 @@ Only one WiFi client can connect to the M5 at a time. Stop the ROS driver before
 
 This work is licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License (CC BY-NC-SA 4.0).
 
-Copyright (c) 2026 Chengdu Changshu Robot Co., Ltd. (成都长数机器人有限公司)
+Copyright (c) 2026 原初智能机器人有限公司
 
 For details, see the [LICENSE](LICENSE.txt) file or visit: http://creativecommons.org/licenses/by-nc-sa/4.0/
 
 ## Author
 
-- **Zhang Li** (张力)
-- Company: Chengdu Changshu Robot Co., Ltd. (成都长数机器人有限公司)
+- **Wei Lindong** (魏林栋)
+- **Zhao Tianhe** (赵天赫)
+- Company: 原初智能机器人有限公司
 - Website: https://openarmx.com/
 
 ## Version
 
-**Current M5 Firmware Version**: 3.3.1
+**Current M5 Firmware Version**: 3.3.3
 
-- Release notes will be generated for v3.3.1 by the release workflow.
+- Release notes will be generated for v3.3.3 by the release workflow.
+
+## GitHub and Gitee Releases
+
+Pushing a version tag runs **Build and Release Firmware**. After creating the
+GitHub Release, it calls **Sync to Gitee** to push branches and tags, then copy
+the release notes and all assets to
+[Gitee](https://gitee.com/chengdu-changshu-robot/openarmx_firmware_ker/releases).
+The tag must match `FW_VERSION` in `M5/include/Meta.h`.
+
+Configure these GitHub repository secrets under **Settings → Secrets and
+variables → Actions**:
+
+- `GITEE_SSH_PRIVATE_KEY`: SSH private key whose public key has write access to the Gitee repository.
+- `GITEE_ACCESS_TOKEN`: Gitee access token with permission to create releases and upload attachments in that repository.
+
+Credentials are stored in GitHub Secrets, not in workflow files. Missing secrets
+cause synchronization to fail with an explicit error. To copy an existing
+GitHub Release, manually run **Sync to Gitee** and set `release_tag` to its tag,
+for example `v3.3.3`. Re-running replaces the Gitee Release for that tag and
+uploads the GitHub assets again.
 
 ## Acknowledgments
 
@@ -102,7 +123,7 @@ This firmware is part of the OpenArmX robotic platform ecosystem and includes wo
 
 ## Contact Us
 
-### Chengdu Changshu Robot Co., Ltd.
+### 原初智能机器人有限公司
 
 | Contact | Information |
 |---|---|

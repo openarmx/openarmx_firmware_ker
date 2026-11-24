@@ -16,9 +16,20 @@ on:
         description: Optional GitHub Release tag to synchronize
         required: false
         type: string
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Published GitHub Release tag to synchronize
+        required: true
+        type: string
+    secrets:
+      GITEE_SSH_PRIVATE_KEY:
+        required: true
+      GITEE_ACCESS_TOKEN:
+        required: true
 
 concurrency:
-  group: sync-gitee-${{ github.ref }}
+  group: sync-gitee-${{ inputs.release_tag || github.event.release.tag_name || github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -42,9 +53,10 @@ jobs:
           if [[ -n "$GITEE_SSH_PRIVATE_KEY" ]]; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "GITEE_SSH_PRIVATE_KEY is not configured; source synchronization was skipped." \
+            echo "::error::Configure the GITEE_SSH_PRIVATE_KEY repository secret."
+            echo "GITEE_SSH_PRIVATE_KEY is not configured; source synchronization failed." \
               >> "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
 
       - name: Checkout GitHub repository
@@ -95,7 +107,7 @@ jobs:
     needs: source
     if: >-
       github.event_name == 'release' ||
-      (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+      inputs.release_tag != ''
     runs-on: ubuntu-22.04
     env:
       GH_TOKEN: ${{ github.token }}
@@ -110,9 +122,10 @@ jobs:
           if [[ -n "$GITEE_ACCESS_TOKEN" ]]; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "GITEE_ACCESS_TOKEN is not configured; Release synchronization was skipped." \
+            echo "::error::Configure the GITEE_ACCESS_TOKEN repository secret."
+            echo "GITEE_ACCESS_TOKEN is not configured; Release synchronization failed." \
               >> "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
 
       - name: Resolve GitHub Release
@@ -126,33 +139,46 @@ jobs:
             tag="$INPUT_RELEASE_TAG"
           fi
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > github-release.json
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
 
       - name: Download GitHub Release assets
         if: steps.credentials.outputs.configured == 'true'
         shell: bash
         run: |
           mkdir release-assets
-          gh release download "${{ steps.release.outputs.tag }}" \
-            --repo "$GITHUB_REPOSITORY" \
-            --dir release-assets
+          if [[ "$(jq '.assets | length' github-release.json)" -gt 0 ]]; then
+            gh release download "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --dir release-assets
+          fi
 
       - name: Create Gitee Release and upload assets
         if: steps.credentials.outputs.configured == 'true'
         shell: bash
         run: |
-          tag="${{ steps.release.outputs.tag }}"
+          set -euo pipefail
+          shopt -s nullglob
+          tag="$RELEASE_TAG"
           name="$(jq -r '.name // .tag_name' github-release.json)"
           body="$(jq -r '.body // ""' github-release.json)"
           prerelease="$(jq -r '.prerelease // false' github-release.json)"
           target_commitish="$(jq -r '.target_commitish // "main"' github-release.json)"
 
-          existing_release="$(
+          lookup_status="$(
             curl --silent --show-error --get \
               --data-urlencode "access_token=$GITEE_ACCESS_TOKEN" \
+              --output gitee-release-lookup.json \
+              --write-out '%{http_code}' \
               "https://gitee.com/api/v5/repos/$GITEE_REPOSITORY/releases/tags/$tag"
           )"
-          existing_id="$(jq -r '.id // empty' <<< "$existing_release")"
+          if [[ "$lookup_status" == "200" ]]; then
+            existing_id="$(jq -er '.id' gitee-release-lookup.json)"
+          elif [[ "$lookup_status" == "404" ]]; then
+            existing_id=""
+          else
+            echo "Gitee Release lookup failed with HTTP $lookup_status" >&2
+            exit 1
+          fi
           if [[ -n "$existing_id" ]]; then
             curl --fail --silent --show-error \
               --request DELETE \
@@ -173,7 +199,6 @@ jobs:
           )"
           if [[ ! "$release_status" =~ ^2 ]]; then
             echo "Gitee Release creation failed with HTTP $release_status" >&2
-            sed "s/$GITEE_ACCESS_TOKEN/***/g" gitee-release-response.json >&2
             exit 1
           fi
           release_response="$(cat gitee-release-response.json)"
@@ -190,7 +215,6 @@ jobs:
             )"
             if [[ ! "$asset_status" =~ ^2 ]]; then
               echo "Gitee asset upload failed with HTTP $asset_status: $(basename "$asset")" >&2
-              sed "s/$GITEE_ACCESS_TOKEN/***/g" gitee-asset-response.json >&2
               exit 1
             fi
             echo "Uploaded $(basename "$asset")"
