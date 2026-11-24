@@ -61,7 +61,7 @@ jobs:
 
       - name: Checkout GitHub repository
         if: steps.credentials.outputs.configured == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -88,11 +88,39 @@ jobs:
         if: steps.credentials.outputs.configured == 'true'
         shell: bash
         run: |
+          set -euo pipefail
           git remote add gitee "$GITEE_GIT_URL"
           git fetch origin '+refs/heads/*:refs/remotes/origin/*' --prune
 
+          # Gitee releases can create lightweight tags where GitHub has
+          # annotated tags. Compare their commits before attempting a push;
+          # pushing an existing tag with a different object is rejected.
+          # Keep Gitee's tags separate from the GitHub source tags.
+          git fetch --no-tags gitee \
+            '+refs/tags/*:refs/gitee-tags/*' --prune
+          tag_refspecs=()
+          while IFS= read -r tag_ref; do
+            tag="${tag_ref#refs/tags/}"
+            gitee_tag_ref="refs/gitee-tags/$tag"
+            if git show-ref --verify --quiet "$gitee_tag_ref"; then
+              if [[ "$(git rev-parse "$tag_ref")" == "$(git rev-parse "$gitee_tag_ref")" ]]; then
+                echo "Tag $tag is already synchronized."
+              elif [[ "$(git rev-parse "$tag_ref^{commit}")" == "$(git rev-parse "$gitee_tag_ref^{commit}")" ]]; then
+                echo "Tag $tag points to the same commit; keeping the existing Gitee tag."
+              else
+                echo "::error::Tag $tag points to different commits on GitHub and Gitee. Resolve the tag conflict before retrying."
+                exit 1
+              fi
+            else
+              tag_refspecs+=("$tag_ref:$tag_ref")
+            fi
+          done < <(git for-each-ref --format='%(refname)' refs/tags)
+
           while IFS= read -r branch; do
-            git push gitee "refs/remotes/origin/$branch:refs/heads/$branch"
+            if ! git push gitee "refs/remotes/origin/$branch:refs/heads/$branch"; then
+              echo "::error::Failed to push branch $branch to Gitee. Check the Git output above for SSH permissions, branch protection, or divergent history."
+              exit 1
+            fi
           done < <(
             git for-each-ref \
               --format='%(refname:strip=3)' \
@@ -100,7 +128,13 @@ jobs:
               | grep -v '^HEAD$'
           )
 
-          git push gitee --tags
+          if (( ${#tag_refspecs[@]} > 0 )); then
+            if ! git push gitee "${tag_refspecs[@]}"; then
+              echo "::error::Failed to push new tags to Gitee. Check the Git output above for permissions or concurrent tag changes."
+              exit 1
+            fi
+          fi
+          echo "Synchronized GitHub branches and tags to Gitee." >> "$GITHUB_STEP_SUMMARY"
 
   release:
     name: Release assets

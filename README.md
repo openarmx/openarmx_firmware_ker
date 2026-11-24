@@ -114,6 +114,9 @@ cause synchronization to fail with an explicit error. To copy an existing
 GitHub Release, manually run **Sync to Gitee** and set `release_tag` to its tag,
 for example `v3.3.3`. Re-running replaces the Gitee Release for that tag and
 uploads the GitHub assets again.
+Leave `release_tag` empty to synchronize only code and tags. Existing Gitee tags
+are preserved when they point to the same commit, including lightweight versus
+annotated tag differences. Tags pointing to different commits fail explicitly.
 
 ## Acknowledgments
 
